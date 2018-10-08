@@ -56,7 +56,12 @@ finally {
     [Net.ServicePointManager]::SecurityProtocol = $current_protocols
 }
 
+Write-Host "--- Installing protoc and protobuf"
+choco install protoc -y
+invoke-expression "cargo install protobuf"
+
 $env:SSL_CERT_FILE="$env:TEMP\cacert.pem"
+$env:PROTOBUF_PREFIX=$env:ChocolateyInstall
 
 $env:PATH                   = New-PathString -StartingPath $env:PATH    -Path 'C:\Program Files\7-Zip'
 $env:PATH                   = New-PathString -StartingPath $env:PATH    -Path $ChocolateyHabitatBinDir
