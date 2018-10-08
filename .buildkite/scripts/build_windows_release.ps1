@@ -46,6 +46,18 @@ choco install libsodium_vc120 --version 1.0.12 --confirm -s https://www.nuget.or
 Copy-Item $env:ChocolateyInstall\lib\libsodium_vc120\build\native\bin\libsodium-x64-v120-mt-1_0_12_0.imp.lib $ChocolateyHabitatLibDir\sodium.lib -Force
 Copy-Item $env:ChocolateyInstall\lib\libsodium_vc120\build\native\bin\libsodium-x64-v120-mt-1_0_12_0.dll $ChocolateyHabitatBinDir\libsodium.dll -Force
 
+Write-Host "--- Downloading cacerts.pem"
+$current_protocols = [Net.ServicePointManager]::SecurityProtocol
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -UseBasicParsing -Uri "http://curl.haxx.se/ca/cacert.pem" -OutFile "$env:TEMP\cacert.pem"
+}
+finally {
+    [Net.ServicePointManager]::SecurityProtocol = $current_protocols
+}
+
+$env:SSL_CERT_FILE="$env:TEMP\cacert.pem"
+
 $env:PATH                   = New-PathString -StartingPath $env:PATH    -Path 'C:\Program Files\7-Zip'
 $env:PATH                   = New-PathString -StartingPath $env:PATH    -Path $ChocolateyHabitatBinDir
 $env:LIB                    = New-PathString -StartingPath $env:LIB     -Path $ChocolateyHabitatLibDir
@@ -57,6 +69,7 @@ $env:OPENSSL_LIBS           = 'ssleay32:libeay32'
 $env:OPENSSL_LIB_DIR        = $ChocolateyHabitatLibDir
 $env:OPENSSL_INCLUDE_DIR    = $ChocolateyHabitatIncludeDir
 $env:LIBZMQ_PREFIX          = Split-Path $ChocolateyHabitatLibDir -Parent
+
 
 Write-Host "--- Moving build folder to new location"
 New-Item -ItemType directory -Path C:\build
