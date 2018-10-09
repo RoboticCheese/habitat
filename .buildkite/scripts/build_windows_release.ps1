@@ -88,4 +88,9 @@ Write-Host "--- Running build"
 cd C:\build
 Invoke-Expression "cargo build --release " -ErrorAction Stop
 
+Write-Host "--- Uploading artifacts"
+. .\results/last_build.env
+echo $env
+
+
 exit $LASTEXITCODE
