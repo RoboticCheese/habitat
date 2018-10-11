@@ -187,6 +187,7 @@ pub struct ManagerState {
     /// The configuration used to instantiate this Manager instance
     pub cfg: ManagerConfig,
     pub services: Arc<RwLock<HashMap<PackageIdent, Service>>>,
+    pub gateway_state: Arc<RwLock<GatewayState>>,
 }
 
 #[derive(Default)]
@@ -212,7 +213,6 @@ pub struct Manager {
     service_states: HashMap<PackageIdent, Timespec>,
     sys: Arc<Sys>,
     http_disable: bool,
-    gateway_state: Arc<RwLock<GatewayState>>,
 }
 
 impl Manager {
@@ -260,7 +260,14 @@ impl Manager {
         req: &mut CtlRequest,
         opts: protocol::ctl::SvcStatus,
     ) -> NetResult<()> {
-        let statuses = Self::status(&mgr.cfg)?;
+        let services_data = &mgr
+            .gateway_state
+            .read()
+            .expect("Gateway State lock is poisoned")
+            .services_data;
+        let statuses: Vec<ServiceStatus> = serde_json::from_str(&services_data)
+            .map_err(|e| sup_error!(Error::ServiceDeserializationError(e)))?;
+
         if let Some(ident) = opts.ident {
             for status in statuses {
                 if status.pkg.ident.satisfies(&ident) {
@@ -287,13 +294,6 @@ impl Manager {
             }
         }
         Ok(())
-    }
-
-    pub fn status(cfg: &ManagerConfig) -> Result<Vec<ServiceStatus>> {
-        let fs_cfg = FsCfg::new(cfg.sup_root());
-
-        let dat = File::open(&fs_cfg.services_data_path)?;
-        serde_json::from_reader(&dat).map_err(|e| sup_error!(Error::ServiceDeserializationError(e)))
     }
 
     pub fn term(cfg: &ManagerConfig) -> Result<()> {
@@ -367,6 +367,7 @@ impl Manager {
         );
         let member = Self::load_member(&mut sys, &fs_cfg)?;
         let services = Arc::new(RwLock::new(HashMap::new()));
+        let gateway_state = Arc::new(RwLock::new(GatewayState::default()));
         let server = butterfly::Server::new(
             sys.gossip_listen(),
             sys.gossip_listen(),
@@ -395,6 +396,7 @@ impl Manager {
             state: Rc::new(ManagerState {
                 cfg: cfg_static,
                 services: services,
+                gateway_state: gateway_state,
             }),
             self_updater: self_updater,
             updater: ServiceUpdater::new(server.clone()),
@@ -410,7 +412,6 @@ impl Manager {
             service_states: HashMap::new(),
             sys: Arc::new(sys),
             http_disable: cfg.http_disable,
-            gateway_state: Arc::new(RwLock::new(GatewayState::default())),
         })
     }
 
@@ -690,7 +691,7 @@ impl Manager {
             http_gateway::Server::run(
                 http_listen_addr,
                 self.fs_cfg.clone(),
-                self.gateway_state.clone(),
+                self.state.gateway_state.clone(),
             );
             debug!("http-gateway started");
         }
@@ -709,6 +710,7 @@ impl Manager {
         if !feat::is_enabled(feat::IgnoreSignals) {
             signals::init();
         }
+
         loop {
             if feat::is_enabled(feat::TestExit) {
                 if let Ok(exit_file_path) = env::var("HAB_FEAT_TEST_EXIT") {
@@ -1434,7 +1436,8 @@ impl Manager {
     fn persist_census_state(&self) {
         let crp = CensusRingProxy::new(&self.census_ring);
         let json = serde_json::to_string(&crp).unwrap();
-        self.gateway_state
+        self.state
+            .gateway_state
             .write()
             .expect("Gateway State lock is poisoned")
             .census_data = json;
@@ -1443,7 +1446,8 @@ impl Manager {
     fn persist_butterfly_state(&self) {
         let bs = ServerProxy::new(&self.butterfly);
         let json = serde_json::to_string(&bs).unwrap();
-        self.gateway_state
+        self.state
+            .gateway_state
             .write()
             .expect("Gateway State lock is poisoned")
             .butterfly_data = json;
@@ -1493,7 +1497,8 @@ impl Manager {
         services_to_render.extend(watched_service_proxies);
 
         let json = serde_json::to_string(&services_to_render).unwrap();
-        self.gateway_state
+        self.state
+            .gateway_state
             .write()
             .expect("Gateway State lock is poisoned")
             .services_data = json;
